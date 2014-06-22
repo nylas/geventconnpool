@@ -7,6 +7,8 @@ from collections import deque
 from contextlib import contextmanager
 from functools import wraps
 
+from geventconnpool.exceptions import ClosedPoolError
+
 __all__ = ["ConnectionPool", "retry"]
 
 DEFAULT_EXC_CLASSES = (socket.error,)
@@ -24,6 +26,7 @@ class ConnectionPool(object):
     SPAWN_FREQUENCY = 0.1
 
     def __init__(self, size, exc_classes=DEFAULT_EXC_CLASSES, keepalive=None):
+        self.closed = False
         self.size = size
         self.conn = deque()
         self.lock = BoundedSemaphore(size)
@@ -53,15 +56,16 @@ class ConnectionPool(object):
         raise NotImplementedError()
 
     def _keepalive_periodic(self):
-        delay = float(self.keepalive) / self.size
-        while 1:
-            try:
-                with self.get() as c:
-                    self._keepalive(c)
-            except self.exc_classes:
-                # Nothing to do, the pool will generate a new connection later
-                pass
-            gevent.sleep(delay)
+        if not self.closed:
+            delay = float(self.keepalive) / self.size
+            while True:
+                try:
+                    with self.get() as c:
+                        self._keepalive(c)
+                except self.exc_classes:
+                    # Nothing to do, the pool will generate a new conn later
+                    pass
+                gevent.sleep(delay)
 
     def _add_one(self):
         stime = 0.1
@@ -76,6 +80,24 @@ class ConnectionPool(object):
         self.conn.append(c)
         self.lock.release()
 
+    def _close_connection(self, c):
+        """
+        Implement application-level connection close (to be reimplemented
+        in subclasses).
+        """
+        pass
+
+    def close(self):
+        if not self.closed:
+            for i in xrange(self.size):
+                try:
+                    with self.get() as c:
+                        self._close_connection(c)
+                except self.exc_classes:
+                    # The connection failed during close, just leave it
+                    pass
+            self.closed = True
+
     @contextmanager
     def get(self):
         """
@@ -85,12 +107,17 @@ class ConnectionPool(object):
         and a new one is scheduled. Please use @retry as a way to automatically
         retry whatever operation you were performing.
         """
+        if self.closed:
+            raise ClosedPoolError()
+
         self.lock.acquire()
         try:
             c = self.conn.popleft()
             yield c
         except self.exc_classes:
-            # The current connection has failed, drop it and create a new one
+            # The current connection has failed, drop it and create a new one.
+            # We might not be able to properly close it, but try anyway.
+            self._close_connection(c)
             gevent.spawn_later(1, self._add_one)
             raise
         except:
