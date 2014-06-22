@@ -33,7 +33,7 @@ class ConnectionPool(object):
         for i in xrange(size):
             self.lock.acquire()
         for i in xrange(size):
-            gevent.spawn_later(self.SPAWN_FREQUENCY*i, self._addOne)
+            gevent.spawn_later(self.SPAWN_FREQUENCY*i, self._add_one)
         if self.keepalive:
             gevent.spawn(self._keepalive_periodic)
 
@@ -63,7 +63,7 @@ class ConnectionPool(object):
                 pass
             gevent.sleep(delay)
 
-    def _addOne(self):
+    def _add_one(self):
         stime = 0.1
         while 1:
             c = self._new_connection()
@@ -91,7 +91,7 @@ class ConnectionPool(object):
             yield c
         except self.exc_classes:
             # The current connection has failed, drop it and create a new one
-            gevent.spawn_later(1, self._addOne)
+            gevent.spawn_later(1, self._add_one)
             raise
         except:
             self.conn.append(c)
