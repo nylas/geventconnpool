@@ -42,7 +42,7 @@ class ConnectionPool(object):
 
     def _new_connection(self):
         """
-        Estabilish a new connection (to be implemented in subclasses).
+        Establish a new connection (to be implemented in subclasses).
         """
         raise NotImplementedError
 
@@ -69,7 +69,7 @@ class ConnectionPool(object):
 
     def _add_one(self):
         stime = 0.1
-        while 1:
+        while True:
             c = self._new_connection()
             if c:
                 break
@@ -126,7 +126,7 @@ class ConnectionPool(object):
             raise
         else:
             # NOTE: cannot use finally because MUST NOT reuse the connection
-            # if it failed (socket.error)
+            # if it failed
             self.conn.append(c)
             self.lock.release()
 
